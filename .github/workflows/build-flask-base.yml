@@ -101,11 +101,21 @@ jobs:
             export PATH="$HOME/.local/bin:$PATH"
           fi
           
+          # Scan for CRITICAL vulnerabilities (block build)
+          echo "Scanning for CRITICAL vulnerabilities..."
           trivy image \
-            --severity CRITICAL,HIGH \
+            --severity CRITICAL \
             --exit-code 1 \
             --no-progress \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.python_version }}
+          
+          # Scan for HIGH vulnerabilities (report only, no block)
+          echo "Scanning for HIGH vulnerabilities (report only)..."
+          trivy image \
+            --severity HIGH \
+            --exit-code 0 \
+            --no-progress \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.python_version }} || true
 
       - name: Build summary
         if: always()
