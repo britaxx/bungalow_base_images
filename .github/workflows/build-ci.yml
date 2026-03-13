@@ -1,0 +1,118 @@
+name: Build CI Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ci/**'
+      - '.github/workflows/build-ci.yml'
+  schedule:
+    # Weekly builds every Monday at 2 AM UTC
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+    inputs:
+      tag_suffix:
+        description: 'Optional tag suffix (e.g., test, experimental)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: registry.berriait.com
+  IMAGE_NAME: campkeeper/ci
+
+jobs:
+  build-and-push:
+    name: Build and Push CI Image
+    runs-on: [self-hosted, linux, x64, docker]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Fix git permissions
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
+          git config --global --add safe.directory '*' || true
+
+      - name: Determine build metadata
+        id: meta
+        run: |
+          BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          DATE_TAG=$(date -u +'%Y-%m-%d')
+          SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)
+          
+          TAGS="latest,$DATE_TAG,sha-$SHA_SHORT"
+          
+          # Add custom suffix if provided
+          if [ -n "${{ github.event.inputs.tag_suffix }}" ]; then
+            TAGS="$TAGS,${{ github.event.inputs.tag_suffix }}"
+          fi
+          
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
+          echo "sha_short=$SHA_SHORT" >> $GITHUB_OUTPUT
+          
+          echo "Build Date: $BUILD_DATE"
+          echo "Tags: $TAGS"
+          echo "SHA: $SHA_SHORT"
+
+      - name: Login to registry
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${{ env.REGISTRY }} -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
+
+      - name: Build and push with Kaniko
+        run: |
+          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.meta.outputs.tags }}"
+          
+          DESTINATIONS=""
+          for tag in "${TAG_ARRAY[@]}"; do
+            DESTINATIONS="$DESTINATIONS --destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$tag"
+          done
+          
+          docker run --rm \
+            --network=host \
+            -v $(pwd)/ci:/workspace \
+            -v ~/.docker/config.json:/kaniko/.docker/config.json:ro \
+            gcr.io/kaniko-project/executor:latest \
+            --dockerfile=/workspace/Dockerfile \
+            --context=/workspace \
+            $DESTINATIONS \
+            --cache=true \
+            --cache-repo=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/cache \
+            --build-arg VERSION=latest \
+            --build-arg BUILD_DATE=${{ steps.meta.outputs.build_date }} \
+            --build-arg VCS_REF=${{ steps.meta.outputs.sha_short }}
+
+      - name: Scan image with Trivy
+        continue-on-error: false
+        run: |
+          # Install Trivy if not present
+          if ! command -v trivy &> /dev/null; then
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          fi
+          
+          # Scan the latest tag
+          trivy image \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            --no-progress \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Build summary
+        if: always()
+        run: |
+          echo "### Build Summary - CI Image" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags built:**" >> $GITHUB_STEP_SUMMARY
+          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.meta.outputs.tags }}"
+          for tag in "${TAG_ARRAY[@]}"; do
+            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$tag\`" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Date:** ${{ steps.meta.outputs.build_date }}" >> $GITHUB_STEP_SUMMARY

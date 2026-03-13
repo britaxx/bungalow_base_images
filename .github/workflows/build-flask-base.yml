@@ -1,0 +1,122 @@
+name: Build Flask Base Image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'flask-base/**'
+      - '.github/workflows/build-flask-base.yml'
+  schedule:
+    # Monthly builds on the 1st at 4 AM UTC (after python-base)
+    - cron: '0 4 1 * *'
+  repository_dispatch:
+    types: [python-base-updated]
+  workflow_dispatch:
+    inputs:
+      python_version:
+        description: 'Python version to use (e.g., 3.13)'
+        required: false
+        default: '3.13'
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: registry.berriait.com
+  IMAGE_NAME: campkeeper/flask-base
+
+jobs:
+  build-and-push:
+    name: Build and Push Flask Base Image
+    runs-on: [self-hosted, linux, x64, docker]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Fix git permissions
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE" || true
+          git config --global --add safe.directory '*' || true
+
+      - name: Determine build metadata
+        id: meta
+        run: |
+          PYTHON_VERSION="${{ github.event.inputs.python_version || github.event.client_payload.python_version || '3.13' }}"
+          BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          DATE_TAG=$(date -u +'%Y-%m-%d')
+          SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)
+          
+          TAGS="$PYTHON_VERSION,$PYTHON_VERSION-$DATE_TAG,$PYTHON_VERSION-sha-$SHA_SHORT,latest"
+          
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "python_version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
+          echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
+          echo "sha_short=$SHA_SHORT" >> $GITHUB_OUTPUT
+          
+          echo "Python Version: $PYTHON_VERSION"
+          echo "Build Date: $BUILD_DATE"
+          echo "Tags: $TAGS"
+
+      - name: Login to registry
+        run: |
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login ${{ env.REGISTRY }} -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
+
+      - name: Pull python-base to ensure latest
+        run: |
+          docker pull ${{ env.REGISTRY }}/campkeeper/python-base:${{ steps.meta.outputs.python_version }} || true
+
+      - name: Build and push with Kaniko
+        run: |
+          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.meta.outputs.tags }}"
+          
+          DESTINATIONS=""
+          for tag in "${TAG_ARRAY[@]}"; do
+            DESTINATIONS="$DESTINATIONS --destination=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$tag"
+          done
+          
+          docker run --rm \
+            --network=host \
+            -v $(pwd)/flask-base:/workspace \
+            -v ~/.docker/config.json:/kaniko/.docker/config.json:ro \
+            gcr.io/kaniko-project/executor:latest \
+            --dockerfile=/workspace/Dockerfile \
+            --context=/workspace \
+            $DESTINATIONS \
+            --cache=true \
+            --cache-repo=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/cache \
+            --build-arg PYTHON_BASE_VERSION=${{ steps.meta.outputs.python_version }} \
+            --build-arg VERSION=${{ steps.meta.outputs.python_version }} \
+            --build-arg BUILD_DATE=${{ steps.meta.outputs.build_date }} \
+            --build-arg VCS_REF=${{ steps.meta.outputs.sha_short }}
+
+      - name: Scan image with Trivy
+        continue-on-error: false
+        run: |
+          if ! command -v trivy &> /dev/null; then
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          fi
+          
+          trivy image \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            --no-progress \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.python_version }}
+
+      - name: Build summary
+        if: always()
+        run: |
+          echo "### Build Summary - Flask Base Image" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Python Version:** ${{ steps.meta.outputs.python_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags built:**" >> $GITHUB_STEP_SUMMARY
+          IFS=',' read -ra TAG_ARRAY <<< "${{ steps.meta.outputs.tags }}"
+          for tag in "${TAG_ARRAY[@]}"; do
+            echo "- \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$tag\`" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
