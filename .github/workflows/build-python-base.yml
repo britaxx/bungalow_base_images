@@ -110,14 +110,6 @@ jobs:
             --no-progress \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.python_version }} || true
 
-      - name: Trigger flask-base build
-        if: success()
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          event-type: python-base-updated
-          client-payload: '{"python_version": "${{ steps.meta.outputs.python_version }}"}'
-
       - name: Build summary
         if: always()
         run: |
@@ -132,3 +124,5 @@ jobs:
           done
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Next step:** Manually trigger flask-base workflow if needed" >> $GITHUB_STEP_SUMMARY
