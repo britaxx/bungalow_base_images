@@ -20,7 +20,8 @@ RUN apt-get update && \
 
 # Install uv (Python package manager)
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
-    mv /root/.cargo/bin/uv /usr/local/bin/uv
+    mv /root/.local/bin/uv /usr/local/bin/uv && \
+    mv /root/.local/bin/uvx /usr/local/bin/uvx
 
 # Create virtual environment for CI tools
 ENV VIRTUAL_ENV=/opt/ci-venv
