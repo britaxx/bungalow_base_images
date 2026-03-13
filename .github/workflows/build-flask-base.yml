@@ -96,7 +96,9 @@ jobs:
         continue-on-error: false
         run: |
           if ! command -v trivy &> /dev/null; then
-            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+            mkdir -p $HOME/.local/bin
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $HOME/.local/bin
+            export PATH="$HOME/.local/bin:$PATH"
           fi
           
           trivy image \
