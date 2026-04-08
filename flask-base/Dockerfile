@@ -24,8 +24,8 @@ RUN apt-get update && \
     libgdk-pixbuf-2.0-0 \
     libffi8 \
     shared-mime-info && \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
 
 # Switch back to non-root user
 USER appuser
