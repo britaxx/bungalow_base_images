@@ -16,16 +16,15 @@ USER root
 # Install WeasyPrint system dependencies
 # These are required for PDF generation with WeasyPrint
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-    curl \
     libcairo2 \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
     libgdk-pixbuf-2.0-0 \
     libffi8 \
     shared-mime-info && \
-    rm -rf /var/lib/apt/lists/* && \
-    apt-get clean
+    rm -rf /var/lib/apt/lists/*
 
 # Switch back to non-root user
 USER appuser

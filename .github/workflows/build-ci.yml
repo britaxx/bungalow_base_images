@@ -90,6 +90,8 @@ jobs:
 
       - name: Scan image with Trivy
         continue-on-error: false
+        env:
+          TRIVY_DISABLE_VEX_NOTICE: "true"
         run: |
           # Install Trivy if not present
           if ! command -v trivy &> /dev/null; then
@@ -97,20 +99,23 @@ jobs:
             curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $HOME/.local/bin
             export PATH="$HOME/.local/bin:$PATH"
           fi
-          
-          # Scan for CRITICAL vulnerabilities (block build)
-          echo "Scanning for CRITICAL vulnerabilities..."
+
+          # Scan for CRITICAL and HIGH fixable vulnerabilities (block build)
+          echo "Scanning for CRITICAL and HIGH vulnerabilities (fixable only)..."
           trivy image \
-            --severity CRITICAL \
+            --severity CRITICAL,HIGH \
             --exit-code 1 \
+            --ignore-unfixed \
+            --scanners vuln \
             --no-progress \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          
-          # Scan for HIGH vulnerabilities (report only, no block)
-          echo "Scanning for HIGH vulnerabilities (report only)..."
+
+          # Full report including unfixed vulnerabilities (informational)
+          echo "Full vulnerability report (informational)..."
           trivy image \
-            --severity HIGH \
+            --severity CRITICAL,HIGH,MEDIUM \
             --exit-code 0 \
+            --scanners vuln \
             --no-progress \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest || true
 

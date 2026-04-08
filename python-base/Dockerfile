@@ -11,6 +11,7 @@ LABEL org.opencontainers.image.source="https://github.com/campkeeper/base_images
 
 # Install build dependencies
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
     build-essential \
     curl \
