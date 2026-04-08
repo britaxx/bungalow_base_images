@@ -17,12 +17,15 @@ USER root
 # These are required for PDF generation with WeasyPrint
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    libcairo2-dev \
-    libpango1.0-dev \
-    libgdk-pixbuf-2.0-dev \
-    libffi-dev \
+    curl \
+    libcairo2 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libgdk-pixbuf-2.0-0 \
+    libffi8 \
     shared-mime-info && \
-    rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Switch back to non-root user
 USER appuser
